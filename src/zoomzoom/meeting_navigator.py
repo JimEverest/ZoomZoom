@@ -4,12 +4,12 @@ import threading
 from datetime import datetime
 import queue
 import uiautomation as auto
-from . import core
 from .core import TranscriptManager, monitor_transcript
 import re
 import configparser
 from .gpt4o import ask
 import os
+from .config_manager import ConfigManager
 
 class NotificationWindow:
     def __init__(self, parent, message, duration=4):
@@ -53,11 +53,12 @@ class NotificationWindow:
         self.window.destroy()
 
 class ConfigDialog:
-    def __init__(self, parent, config, callback):
+    def __init__(self, parent, config_manager, callback):
         self.top = tk.Toplevel(parent)
         self.top.title("Configuration")
         self.top.geometry("800x800")
-        self.config = config
+        self.config_manager = config_manager  # 使用 ConfigManager 实例
+        self.config = self.config_manager.get_config() # 获取配置对象
         self.callback = callback
         
         # 创建notebook
@@ -73,7 +74,7 @@ class ConfigDialog:
         button_frame = ttk.Frame(self.top)
         button_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        ttk.Button(button_frame, text="Save", command=self.save).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(button_frame, text="Update", command=self.save_config).pack(side=tk.RIGHT, padx=5)
         ttk.Button(button_frame, text="Cancel", command=self.cancel).pack(side=tk.RIGHT, padx=5)
         
         # 使对话框模态
@@ -147,7 +148,7 @@ class ConfigDialog:
             self.genai_vars[key] = var
             row += 1
     
-    def save(self):
+    def save_config(self):
         """保存配置"""
         # 更新Defaults部分
         for key, var in self.default_vars.items():
@@ -166,10 +167,8 @@ class ConfigDialog:
         for key, var in self.genai_vars.items():
             self.config.set('GenAI', key, var.get())
         
-        # 保存到文件
-        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.ini')
-        with open(config_path, 'w', encoding='utf-8') as f:
-            self.config.write(f)
+        # 使用 ConfigManager 保存配置
+        self.config_manager.save_config()
         
         # 调用回调函数更新主程序的配置
         self.callback()
@@ -183,11 +182,9 @@ class ConfigDialog:
 
 class MeetingNavigator:
     def __init__(self, root):
-        # 首先加载配置文件
-        self.config = configparser.ConfigParser()
-        config_path = get_config_path()
-        if not self.config.read(config_path, encoding='utf-8'):
-            raise Exception("无法加载配置文件: config.ini")
+        # 使用配置管理器
+        self.config_manager = ConfigManager()
+        self.config = self.config_manager.get_config()
         
         self.root = root
         self.root.title("Meeting Navigator")
@@ -878,38 +875,18 @@ class MeetingNavigator:
     
     def show_config_dialog(self):
         """显示配置对话框"""
-        ConfigDialog(self.root, self.config, self.reload_config)
+        ConfigDialog(self.root, self.config_manager, self.reload_config) # 传递 ConfigManager 实例
     
     def reload_config(self):
         """重新加载配置"""
-        # 重新读取配置文件
-        config_path = get_config_path()
-        self.config.read(config_path, encoding='utf-8')
+        self.config_manager = ConfigManager()
+        self.config = self.config_manager.get_config()
         
         # 更新通知显示时间
         self.notification_duration = int(self.config['Defaults'].get('notification_showtime', '4'))
         
         # 显示成功通知
         self.show_notification("配置已更新")
-
-def get_config_path():
-    """Get the path to the config file, creating it from default if it doesn't exist"""
-    # Get user's home directory
-    home_dir = os.path.expanduser("~")
-    app_dir = os.path.join(home_dir, ".zoomzoom")
-    config_path = os.path.join(app_dir, "config.ini")
-    
-    # Create app directory if it doesn't exist
-    if not os.path.exists(app_dir):
-        os.makedirs(app_dir)
-    
-    # If config doesn't exist, copy default config
-    if not os.path.exists(config_path):
-        default_config = os.path.join(os.path.dirname(__file__), "config", "default_config.ini")
-        import shutil
-        shutil.copy2(default_config, config_path)
-    
-    return config_path
 
 def main():
     root = tk.Tk()
